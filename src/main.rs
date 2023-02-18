@@ -10,8 +10,6 @@ use serde::{Deserialize, Serialize};
 struct Record {
     kind: String,
     time: String,
-    // country: String,
-    // population: Option<u64>,
 }
 
 struct DayInfo {
@@ -60,9 +58,6 @@ fn write_record(file: &File, record: Record) -> Result<(), Box<dyn Error>> {
 
 fn read_work_time(file: &File) -> Result<DayInfo, Box<dyn Error>> {
     let mut rdr = csv::Reader::from_reader(file);
-    // let mut start: isize = 0;
-    // let mut it = rdr.deserialize::<Record>();
-    // let records: Result<Vec<Record>, csv::Error> = rdr.deserialize::<Record>().collect();
     let records = rdr.deserialize::<Record>();
 
     let (starts, stops): (Vec<Record>, Vec<Record>) = records
@@ -72,57 +67,14 @@ fn read_work_time(file: &File) -> Result<DayInfo, Box<dyn Error>> {
         })
         .partition(|x| x.kind == "strt");
 
-    let adding: isize = starts.iter().map(|x| hhmmss_to_s(&x.time)).sum();
-    let subtracting: isize = stops.iter().map(|x| hhmmss_to_s(&x.time)).sum();
+    let subtracting: isize = starts.iter().map(|x| hhmmss_to_s(&x.time)).sum();
+    let adding: isize = stops.iter().map(|x| hhmmss_to_s(&x.time)).sum();
     let start = starts.get(0).map_or(0, |x| hhmmss_to_s(&x.time));
 
     Ok(DayInfo {
         start,
         duration: adding - subtracting,
     })
-
-    // let len = it.clone().count();
-
-    // if let Ok(records) = records {
-    //     for (i, record) in records.iter().enumerate() {
-    //         if i == 0 {
-    //             start = hhmmss_to_s(&record.time);
-    //         }
-
-    //         match record.kind.as_str() {
-    //             "strt" => duration -= hhmmss_to_s(&record.time),
-    //             "stop" => duration += hhmmss_to_s(&record.time),
-    //             _ => return Err("meh")?,
-    //         }
-
-    //         if i == records.len() - 1 {
-    //             return Ok((duration, record.kind.clone(), start));
-    //         }
-    //     }
-    // }
-    // let start: isize = if let Some(Ok(first)) = it.next() {
-    //     match first.kind.as_str() {
-    //         "strt" => duration -= hhmmss_to_s(&first.time),
-    //         "stop" => duration += hhmmss_to_s(&first.time),
-    //         _ => return Err("meh")?,
-    //     }
-    //     hhmmss_to_s(&first.time)
-    // } else {
-    //     0
-    // };
-
-    // while let Some(Ok(record)) = it.next() {
-    //     match record.kind.as_str() {
-    //         "strt" => duration -= hhmmss_to_s(&record.time),
-    //         "stop" => duration += hhmmss_to_s(&record.time),
-    //         _ => return Err("meh")?,
-    //     }
-    //     if it.peek().is_none() {
-    //         return Ok((duration, record.kind, start));
-    //     }
-    // }
-
-    // Ok((0, "stop".to_owned(), 0))
 }
 
 fn update_time(file: &File, time: &str) -> Result<(), Box<dyn Error>> {
@@ -169,35 +121,42 @@ fn main() -> Result<(), Box<dyn Error>> {
     let now = chrono::Local::now();
     let date: String = format!("{}", now.format("%Y-%m-%d"));
     let time: String = format!("{}", now.format("%H:%M:%S"));
+    let file_path_today = file_path(&date)?;
+    let cli = cli(&file_path_today.to_str().unwrap());
 
-    let file_path = file_path(&date)?;
-
-    match cli(&file_path.to_str().unwrap()).get_matches().subcommand() {
+    match cli.get_matches().subcommand() {
         Some(("stamp", _)) => {
             let file = File::options()
                 .write(true)
                 .read(true)
                 .create(true)
                 .append(true)
-                .open(&file_path)?;
+                .open(&file_path_today)?;
             update_time(&file, &time)?;
             println!(
                 "Updated {file_path} with {time}.",
-                file_path = file_path.display()
+                file_path = file_path_today.display()
             )
         }
         Some(("get", sub_matches)) => {
-            let day = sub_matches.get_one::<String>("day").unwrap_or(&date);
-            let DayInfo { start, duration } = read_work_time(&File::open(file_path)?)?;
+            let date_iso8601 = sub_matches.get_one::<String>("day").unwrap_or(&date);
+            let file_path = file_path(date_iso8601)?;
 
-            if duration < 0 {
-                println!("Work ain't over yet.")
+            if let Ok(file) = File::open(file_path) {
+                let DayInfo { start, duration } = read_work_time(&file)?;
+
+                if duration < 0 {
+                    eprintln!("Work ain't over yet.");
+                    std::process::exit(1);
+                } else {
+                    let duration_hhmm = s_to_hhmm(duration);
+                    let from_hhmm = s_to_hhmm(start);
+                    let to_hhmm = s_to_hhmm(start + duration);
+                    println!("Worked for {duration_hhmm} on {date_iso8601}.\nFrom {from_hhmm} to {to_hhmm}")
+                }
             } else {
-                let duration_hhmm = s_to_hhmm(duration);
-                let from_hhmm = s_to_hhmm(start);
-                let to_hhmm = s_to_hhmm(start + duration);
-                dbg!(start, duration);
-                println!("Worked for {duration_hhmm} on {day}.\nFrom {from_hhmm} to {to_hhmm}")
+                eprintln!("Work hasn't started yet.");
+                std::process::exit(1);
             }
         }
         _ => unreachable!(),
