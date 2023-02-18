@@ -122,7 +122,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let date: String = format!("{}", now.format("%Y-%m-%d"));
     let time: String = format!("{}", now.format("%H:%M:%S"));
     let file_path_today = file_path(&date)?;
-    let cli = cli(&file_path_today.to_str().unwrap());
+    let cli = cli(file_path_today.to_str().unwrap());
 
     match cli.get_matches().subcommand() {
         Some(("stamp", _)) => {
